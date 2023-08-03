@@ -1,0 +1,306 @@
+/*
+
+SQL: Clinical Data Projects
+
+Skills used: data modelling, aggregate functions, joins, data extraction, data transformation
+
+*/
+
+--#Question 1: Create a view called “todays_appointment_schedule” (can only create views in your student
+database on the database server). The view should list all appointments for the current day.
+
+CREATE OR REPLACE VIEW s3877204.todays_appointment_schedule AS
+    SELECT dateofappointment, 
+        DATE_FORMAT(timeofappointment, '%H:%i') AS timeofappointment,
+        CONCAT(d.surname, ' ', d.given) AS doctor_name,
+        CONCAT(p.surname, ' ', p.given) AS patient_name,
+        p.phone AS patient_phone,
+        done AS STATUS
+    FROM appointment AS a
+    JOIN doctor AS d
+    ON a.doctorid = d.doctorid
+    JOIN patient AS p
+    ON a.patientid = p.patientid
+    WHERE DATE_FORMAT(dateofappointment, '%Y-%m-%d') = DATE_FORMAT(SYSDATE(), '%Y-%m-%d')
+    ORDER BY CONCAT(d.surname, ' ', d.given), timeofappointment;
+    
+--#Question 2: Show a list of appointments for March 2023. Provide the doctor and patients full name,
+disease name (if any diagnosed), date & time of appointment together in this format
+‘YYYY-MON-DD HH:MM’, consultant room number used, and status (i.e., Done).
+
+SELECT CONCAT(d.surname, ' ', d.given) AS doctor_name,
+    CONCAT(p.surname, ' ', p.given) AS patient_name,
+    diseaseName,
+    CONCAT(DATE_FORMAT(dateofappointment, '%Y-%b-%d'), ' ', DATE_FORMAT(timeofappointment, '%H:%i')) AS appointment_date_time, 
+    roomno,
+    done AS STATUS
+FROM appointment AS a
+JOIN doctor AS d
+ON a.doctorid = d.doctorid
+JOIN patient AS p
+ON a.patientid = p.patientid
+JOIN request AS r
+ON a.appointmentid = r.appointmentid
+LEFT JOIN disease AS di
+ON di.diseaseid = r.diseaseid
+WHERE DATE_FORMAT(dateofappointment, '%Y-%m') = '2023-03'
+ORDER BY dateofappointment, timeofappointment;
+
+#number of rows: 358
+
+ 
+
+--#Question 3: List all appointments made by patients in the suburb WINDSOR, during the 2022 year that
+have not been diagnosed with any diseases.
+
+SELECT CONCAT(p.surname, ' ', p.given) AS patient_name,
+    dateofappointment,
+    timeofappointment
+FROM appointment AS a
+JOIN patient AS p
+ON a.patientid = p.patientid
+JOIN request AS r
+ON a.appointmentid = r.appointmentid
+WHERE DATE_FORMAT(dateofappointment, '%Y') = '2022'
+    AND p.suburb = 'WINDSOR'
+    AND diseaseid IS NULL;
+
+#number of rows: 16
+
+
+    
+--#Question 4: Display the name of the patient(s) and their age, who is/are the oldest and youngest on
+record in the clinic database who live in the state of Victoria.
+
+SELECT CONCAT(surname, ' ', given) AS patient_name,
+    TRUNCATE(DATEDIFF (SYSDATE(), dob)/365.25,0) AS Age
+FROM patient
+WHERE state = 'VIC'
+AND (dob = (SELECT MIN(dob) FROM patient WHERE state = 'VIC') 
+    OR dob = (SELECT MAX(dob) FROM patient WHERE state = 'VIC'));
+
+#number of rows: 3
+
+ 
+
+--#Question 5: Show a list of the consultation room numbers, along with a count of the number of times
+they have been used for an appointment 
+
+SELECT a.roomno,
+    roomname,
+    COUNT(*) AS number_of_appointments
+FROM room AS r
+JOIN appointment AS a
+ON a.roomno = r.roomno
+WHERE done = 'Y'
+GROUP BY a.roomno
+
+#number of rows: 5
+
+ 
+
+--#Question 6: Generate a list of all the appointments where the doctor has diagnosed
+more than 5 diseases.
+
+SELECT CONCAT(p.surname, ' ', p.given) AS patient_name,
+    CONCAT('Dr. ' ,d.surname, ' ', d.given) AS doctor_name,
+    dateofappointment, 
+    roomno,
+    COUNT(diseaseid) AS number_of_diseases
+FROM appointment AS a
+JOIN doctor AS d
+ON a.doctorid = d.doctorid
+JOIN patient AS p
+ON a.patientid = p.patientid
+JOIN request AS r
+ON r.appointmentid = a.appointmentid
+GROUP BY a.appointmentid
+HAVING COUNT(diseaseid) > 5
+ORDER BY d.given, dateofappointment;
+
+#number of rows: 17
+
+ 
+
+--#Question 7: List all disease names and a count of how many times each disease has been diagnosed at
+the clinic. The list is of rarely identified diseases, so show only diseases that have a
+diagnosis count of less than 10.
+
+SELECT diseasename, COUNT(r.diseaseid) AS number_of_diagnosis
+FROM disease AS d
+LEFT JOIN request AS r
+ON d.diseaseid = r.diseaseid AND r.requesttype = 'D'
+GROUP BY d.diseaseid
+HAVING COUNT(r.diseaseid) < 10;
+
+#number of rows: 11
+
+ 
+
+--#Question 8: Show all the patients that have visited (i.e., a visit is ONE appointment) the clinic more than
+150 times. 
+
+SELECT CONCAT(p.surname, ' ', p.given) AS patient_name,
+    COUNT(a.appointmentid) AS number_of_visits,
+    COUNT(DISTINCT a.doctorid) AS number_of_doctors,
+    COUNT(DISTINCT di.diseaseid) AS number_of_diseases,
+    COUNT(t.testid) AS number_of_tests,
+    COUNT(DISTINCT dr.drugid) AS number_of_drugs
+FROM patient AS p
+JOIN appointment AS a
+ON p.patientid = a.patientid
+JOIN doctor AS d
+ON d.doctorid = a.doctorid
+JOIN request AS r
+ON r.appointmentid = a.appointmentid
+LEFT JOIN disease AS di
+ON r.diseaseid = di.diseaseid
+LEFT JOIN test AS t
+ON r.testid = t.testid
+LEFT JOIN drug AS dr
+ON dr.drugid = r.drugid
+GROUP BY a.patientid
+HAVING COUNT(a.appointmentid) > 150
+ORDER BY p.surname;
+
+#number of rows: 9
+
+ 
+
+--#Question 9: Clinic needs to create a Easter card
+address list. Generate a query that includes both patients and doctor’s data. Show the ID
+(patientID or doctorID), concatenate a “P” in front of patientIDs and a “D” in front of
+doctorIDs, full name (add “Dr” title to start of given name for doctors), address, suburb,
+postcode. Sort list into suburb and then name order. Only select face2face patients that have
+been a patient (have an appointment) at the clinic in 2023, and only select face2face doctors
+that have seen a patient in the clinic in 2023.
+
+SELECT CONCAT('D', doctorID) AS ID,
+    CONCAT('Dr. ', surname, ' ', given) AS FullName,
+    Address,
+    Suburb,
+    Postcode
+FROM doctor 
+WHERE doctorID IN 
+    (SELECT doctor.doctorID 
+    FROM doctor
+    JOIN appointment
+    ON doctor.doctorID = appointment.doctorID
+    WHERE DATE_FORMAT(dateofappointment, '%Y') = '2023'
+    AND roomno IN (1,2,3,4))
+    
+UNION
+
+SELECT CONCAT('P', patientID) AS ID,
+    CONCAT(surname, ' ', given) AS FullName,
+    Address,
+    Suburb,
+    Postcode
+FROM patient
+WHERE patientID IN
+    (SELECT patient.patientID
+    FROM patient
+    JOIN appointment
+    ON patient.patientID = appointment.patientID
+    WHERE DATE_FORMAT(dateofappointment, '%Y') = '2023'
+    AND roomno IN (1,2,3,4))
+ORDER BY suburb, fullname;
+
+#number of rows: 2204
+
+ 
+
+--#Question 10: List all female doctors, that are either active or have resigned, that have worked in the clinic
+between 2 and 10 years.
+
+SELECT CONCAT(d1.surname, ' ', d1.given) AS full_name, 
+    TRUNCATE(DATEDIFF (SYSDATE(), d1.joined)/365.25,0) AS year_at_office,
+    CONCAT(d2.surname, ' ', d2.given) AS supervisor_name 
+FROM doctor AS d1
+LEFT JOIN doctor AS d2
+ON d1.supervisorid = d2.doctorid
+WHERE 
+    (d1.resigned IS NULL 
+    AND d1.sex = 'F'
+    AND DATEDIFF (SYSDATE(), d1.joined)/365.25 BETWEEN 2 AND 10)
+
+UNION
+
+SELECT CONCAT(d1.surname, ' ', d1.given) AS full_name, 
+    TRUNCATE(DATEDIFF (d1.resigned, d1.joined)/365.25,0) AS year_at_office,
+    CONCAT(d2.surname, ' ', d2.given) AS supervisor_name 
+FROM doctor AS d1
+LEFT JOIN doctor AS d2
+ON d1.supervisorid = d2.doctorid
+WHERE (d1.resigned IS NOT NULL 
+    AND d1.sex = 'F'
+    AND DATEDIFF (d1.resigned, d1.joined)/365.25 BETWEEN 2 AND 10);
+
+#number of rows: 3
+
+
+--#Question 11a: Create a view that shows a count of appointments that each doctor has attended. The
+view should have the following fields: doctor’s id and count of appointments
+
+CREATE OR REPLACE VIEW s3877204.doctor_appointment_count AS 
+    SELECT doctor.doctorid,
+    COUNT(*) AS count_of_appointment
+    FROM doctor
+    JOIN appointment
+    ON doctor.doctorid = appointment.doctorid
+    GROUP BY doctor.doctorid;
+    
+#Question 11b: Using the view in the previous question, show the doctor that has the minimum and
+maximum number of appointments. Show the name of the doctor
+
+SELECT CONCAT(surname, ' ', given) AS full_name,
+    count_of_appointment
+FROM s3877204.doctor_appointment_count AS v
+JOIN doctor AS d
+ON d.doctorid = v.doctorid
+WHERE count_of_appointment = 
+    (SELECT MAX(count_of_appointment)
+    FROM s3877204.doctor_appointment_count)
+
+UNION 
+SELECT CONCAT(surname, ' ', given) AS full_name,
+    count_of_appointment
+FROM s3877204.doctor_appointment_count AS v
+JOIN doctor AS d
+ON d.doctorid = v.doctorid
+WHERE count_of_appointment = 
+    (SELECT MIN(count_of_appointment)
+    FROM s3877204.doctor_appointment_count);
+
+#number of rows: 2
+
+
+
+#Question 12: There are inconsistencies when recording the patients' state: for example, patients from New South Wales can 
+either be recorded at the state column with values of 'NSW' or 'New South Wales'. This happens for all 8 states. 
+Create a view that shows all the information in the patient table and with a cleaned state column (including no 
+inconsistencies); and use that view to show the count of appointments made by patients from each state in the year 2022. 
+Order the result by the count of appointments from high to low.
+
+CREATE OR REPLACE VIEW s3877204.cleaned_state_patient AS
+    SELECT *, 
+    REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(state, 'New South Wales', 'NSW'),
+        'Victoria','VIC'),
+        'South Australia', 'SA'),
+        'Western Australia', 'WA'),
+        'Queensland', 'QLD'),
+        'Northern Territory', 'NT'),
+        'Australian Capital Territory', 'ACT'),
+        'Tasmania', 'TAS')
+        AS cleaned_state
+    FROM patient;
+
+SELECT cleaned_state, COUNT(*) AS count_of_appointments
+FROM appointment AS a
+JOIN s3877204.cleaned_state_patient AS p
+ON a.patientid = p.patientid
+WHERE DATE_FORMAT(dateofappointment, '%Y') = '2022'
+GROUP BY cleaned_state
+ORDER BY COUNT(*) DESC;
+
+#number of rows: 8
